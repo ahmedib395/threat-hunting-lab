@@ -1,0 +1,26 @@
+title: Windows Management Instrumentation - WMI Abuse
+id: 7i8j9k0l-1234-5678-lmno-901234567890
+description: Detects wmic.exe execution for system reconnaissance or lateral movement
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    Image|endswith: '\wmic.exe'
+    CommandLine|contains|any:
+      - 'os get'
+      - 'process call'
+      - 'qfe list'
+      - 'logicaldisk'
+  condition: selection
+fields:
+  - CommandLine
+  - Image
+  - User
+falsepositives:
+  - Legitimate WMI queries by administrators
+level: medium
+tags:
+  - attack.execution
+  - attack.t1047
