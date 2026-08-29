@@ -1,0 +1,23 @@
+title: Scheduled Task Creation for Persistence
+id: 8j9k0l1m-2345-6789-mnop-012345678901
+description: Detects creation of scheduled tasks, often used for persistence and command execution
+logsource:
+  product: windows
+  service: security
+  event_id: 4688
+detection:
+  selection:
+    CommandLine|contains|any:
+      - 'schtasks /create'
+      - 'New-ScheduledTask'
+      - 'Register-ScheduledTask'
+  condition: selection
+fields:
+  - CommandLine
+  - User
+falsepositives:
+  - Legitimate task scheduling by administrators
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1053.005
