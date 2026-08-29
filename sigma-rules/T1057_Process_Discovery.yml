@@ -1,0 +1,27 @@
+title: Process Discovery - Tasklist Execution
+id: 6h7i8j9k-0123-4567-klmn-890123456789
+description: Detects use of tasklist to enumerate running processes, common reconnaissance technique
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    CommandLine|contains|any:
+      - 'tasklist'
+      - 'Get-Process'
+      - 'wmic process'
+  filter:
+    User|contains:
+      - 'SYSTEM'
+  condition: selection and not filter
+fields:
+  - CommandLine
+  - Image
+  - User
+falsepositives:
+  - System administration activities
+level: low
+tags:
+  - attack.discovery
+  - attack.t1057
