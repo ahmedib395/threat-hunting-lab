@@ -1,0 +1,26 @@
+title: Driver Installation for Persistence - PnpUtil Abuse
+id: 3e4i5j6k-7890-1234-ghij-567890123456
+description: Detects suspicious use of pnputil.exe to install drivers, often used for persistence or privilege escalation
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    Image|endswith: '\pnputil.exe'
+    CommandLine|contains:
+      - '/add-driver'
+      - '/install'
+  condition: selection
+fields:
+  - CommandLine
+  - Image
+  - ParentImage
+  - ParentCommandLine
+  - User
+falsepositives:
+  - Legitimate driver installations by IT administrators
+level: medium
+tags:
+  - attack.persistence
+  - attack.t1547.001
