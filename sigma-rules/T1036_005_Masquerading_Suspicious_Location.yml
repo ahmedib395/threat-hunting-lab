@@ -1,0 +1,31 @@
+title: Masquerading - Executable in Suspicious Location
+id: 5g6h7i8j-9012-3456-jklm-789012345678
+description: Detects legitimate Windows executables running from suspicious locations (ProgramData, Temp, etc.), indicating file masquerading for evasion
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    OriginalFileName|contains:
+      - 'Cmd.Exe'
+      - 'PowerShell.exe'
+      - 'notepad.exe'
+      - 'calc.exe'
+    Image|contains:
+      - '\ProgramData\'
+      - '\AppData\'
+      - '\Temp\'
+      - '\Windows\Temp\'
+  condition: selection
+fields:
+  - Image
+  - OriginalFileName
+  - CommandLine
+  - ParentImage
+falsepositives:
+  - Portable/extracted versions of Windows tools
+level: high
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005
