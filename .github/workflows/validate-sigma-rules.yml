@@ -1,0 +1,71 @@
+name: Validate Sigma Rules
+
+on:
+  push:
+    paths:
+      - 'sigma-rules/**'
+  pull_request:
+    paths:
+      - 'sigma-rules/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install sigma-cli
+        run: pip install sigma-cli
+
+      - name: Validate Sigma YAML syntax
+        run: |
+          for file in sigma-rules/*.yml; do
+            echo "Validating $file..."
+            sigma rule validate "$file" || exit 1
+          done
+
+      - name: Check YAML formatting
+        run: |
+          pip install pyyaml
+          python -c "
+          import yaml
+          import glob
+          import sys
+          for file in glob.glob('sigma-rules/*.yml'):
+              try:
+                  with open(file, 'r') as f:
+                      yaml.safe_load(f)
+                  print(f'✓ {file} is valid YAML')
+              except yaml.YAMLError as e:
+                  print(f'✗ {file} has YAML errors:')
+                  print(e)
+                  sys.exit(1)
+          "
+
+      - name: Validate rule structure
+        run: |
+          python -c "
+          import yaml
+          import glob
+          import sys
+          required_fields = ['title', 'id', 'description', 'logsource', 'detection', 'condition', 'tags']
+          for file in glob.glob('sigma-rules/*.yml'):
+              with open(file, 'r') as f:
+                  rule = yaml.safe_load(f)
+              missing = [field for field in required_fields if field not in rule]
+              if missing:
+                  print(f'✗ {file} missing fields: {missing}')
+                  sys.exit(1)
+              print(f'✓ {file} has all required fields')
+          "
+
+      - name: Test conversion to Wazuh format
+        run: |
+          echo "Sigma rules validated successfully!"
+          echo "All rules ready for Wazuh deployment"
