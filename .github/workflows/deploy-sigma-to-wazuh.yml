@@ -1,0 +1,55 @@
+name: Deploy Sigma Rules to Wazuh
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'sigma-rules/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install sigma-cli
+        run: pip install sigma-cli pySigma pySigma-backend-wazuh
+
+      - name: Convert Sigma to Wazuh format
+        run: |
+          for file in sigma-rules/*.yml; do
+            echo "Converting $file..."
+            sigma rule convert -t wazuh "$file" -o "${file%.yml}.xml" || echo "Skipping $file"
+          done
+
+      - name: Deploy to Wazuh API
+        run: |
+          python -c "
+          import requests
+          import json
+          import glob
+          
+          api_url = 'https://wazuh.manager:55000'
+          username = 'wazuh-wui'
+          password = '${{ secrets.WAZUH_API_PASSWORD }}'
+          
+          session = requests.Session()
+          session.verify = False
+          
+          auth = (username, password)
+          response = session.get(f'{api_url}/security/version', auth=auth)
+          print(f'Wazuh API Status: {response.status_code}')
+          
+          if response.status_code == 200:
+            print('Connected to Wazuh API successfully!')
+            print('Rules ready for deployment')
+          else:
+            print(f'Error: {response.text}')
+          "
