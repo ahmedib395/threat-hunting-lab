@@ -1,0 +1,31 @@
+title: File and Directory Discovery - Enumeration of Sensitive Paths
+id: 7e8c9b3a-1234-5678-abcd-ef1234567890
+description: Detects cmd.exe or PowerShell enumerating sensitive directories (AppData, Desktop, Documents, Users)
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection_cmd:
+    Image|endswith:
+      - '\cmd.exe'
+      - '\powershell.exe'
+    CommandLine|contains|all:
+      - 'dir'
+      - 'AppData'
+  selection_tree:
+    CommandLine|contains:
+      - 'tree /F'
+    ParentImage|endswith: '\cmd.exe'
+  condition: selection_cmd or selection_tree
+fields:
+  - CommandLine
+  - ParentCommandLine
+  - Image
+  - User
+falsepositives:
+  - Legitimate system administration scripts
+level: medium
+tags:
+  - attack.discovery
+  - attack.t1083
