@@ -1,0 +1,29 @@
+title: System Network Connections Discovery
+id: 1m2n3o4p-5678-9012-pqrs-345678901234
+description: Detects tools used to enumerate network connections and routes (netstat, ipconfig, Get-NetTCPConnection)
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    CommandLine|contains|any:
+      - 'netstat'
+      - 'ipconfig'
+      - 'Get-NetTCPConnection'
+      - 'route print'
+      - 'arp -a'
+  filter:
+    User|contains:
+      - 'SYSTEM'
+  condition: selection and not filter
+fields:
+  - CommandLine
+  - Image
+  - User
+falsepositives:
+  - Network troubleshooting by administrators
+level: low
+tags:
+  - attack.discovery
+  - attack.t1049
