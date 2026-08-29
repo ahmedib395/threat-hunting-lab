@@ -1,0 +1,32 @@
+title: Application Window Discovery - Suspicious Temp Execution
+id: 2d3h4i5j-6789-0123-fghi-456789012345
+description: Detects executables launched from AppData\Local\Temp, often used for process discovery and evasion
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    Image|contains:
+      - 'AppData\Local\Temp'
+      - '\Temp\'
+    Image|endswith:
+      - '.exe'
+      - '.scr'
+      - '.com'
+  filter:
+    User|contains:
+      - 'SYSTEM'
+      - 'LOCAL SERVICE'
+  condition: selection and not filter
+fields:
+  - Image
+  - CommandLine
+  - ParentImage
+  - User
+falsepositives:
+  - Legitimate installers that extract to temp
+level: medium
+tags:
+  - attack.discovery
+  - attack.t1010
