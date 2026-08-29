@@ -8,7 +8,7 @@ on:
       - 'sigma-rules/**'
 
 jobs:
-  deploy:
+  validate-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -19,37 +19,33 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install sigma-cli
-        run: pip install sigma-cli pySigma 
-
-      - name: Convert Sigma to Wazuh format
+      - name: Install dependencies
         run: |
-          for file in sigma-rules/*.yml; do
-            echo "Converting $file..."
-            sigma rule convert -t wazuh "$file" -o "${file%.yml}.xml" || echo "Skipping $file"
-          done
+          pip install pyyaml requests
 
-      - name: Deploy to Wazuh API
+      - name: Validate Sigma rules
         run: |
           python -c "
-          import requests
-          import json
+          import yaml
           import glob
-          
-          api_url = 'https://wazuh.manager:55000'
-          username = 'wazuh-wui'
-          password = '${{ secrets.WAZUH_API_PASSWORD }}'
-          
-          session = requests.Session()
-          session.verify = False
-          
-          auth = (username, password)
-          response = session.get(f'{api_url}/security/version', auth=auth)
-          print(f'Wazuh API Status: {response.status_code}')
-          
-          if response.status_code == 200:
-            print('Connected to Wazuh API successfully!')
-            print('Rules ready for deployment')
-          else:
-            print(f'Error: {response.text}')
+          for file in glob.glob('sigma-rules/*.yml'):
+              with open(file) as f:
+                  yaml.safe_load(f)
+              print(f'✓ {file}')
           "
+
+      - name: Convert Sigma to Wazuh format
+        run: python sigma_to_wazuh_converter.py > wazuh_rules.xml
+
+      - name: Deploy to Wazuh
+        run: python deploy_to_wazuh.py
+        env:
+          WAZUH_API_URL: ${{ secrets.WAZUH_API_URL }}
+          WAZUH_USERNAME: ${{ secrets.WAZUH_USERNAME }}
+          WAZUH_PASSWORD: ${{ secrets.WAZUH_PASSWORD }}
+
+      - name: Upload rules artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-rules
+          path: wazuh_rules.xml
