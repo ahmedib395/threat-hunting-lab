@@ -1,4 +1,4 @@
-name: Validate Sigma Rules
+name: Validate and Convert Sigma Rules
 
 on:
   push:
@@ -25,19 +25,15 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
 
-      - name: Validate YAML syntax
+      - name: Convert Sigma Rules to Wazuh XML
         run: |
-          python -c "
-          import yaml
-          import glob
-          import sys
-          for file in glob.glob('sigma-rules/*.yml'):
-              try:
-                  with open(file) as f:
-                      yaml.safe_load(f)
-                  print(f'✓ {file}')
-              except Exception as e:
-                  print(f'✗ {file}: {e}')
-                  sys.exit(1)
-          print('All rules validated!')
-          "
+          mkdir -p output
+          # IMPORTANT: Change this filename to match your exact python script name!
+          python sigma_to_wazuh_converter.py > output/converted_rules.xml
+          cat output/converted_rules.xml
+
+      - name: Upload Wazuh XML Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-xml-rules
+          path: output/converted_rules.xml
