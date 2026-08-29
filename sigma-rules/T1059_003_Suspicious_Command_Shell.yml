@@ -1,0 +1,32 @@
+title: Suspicious Command Shell Execution with Indicators
+id: 0l1m2n3o-4567-8901-opqr-234567890123
+description: Detects cmd.exe with suspicious patterns (encoding, obfuscation, redirects)
+logsource:
+  product: windows
+  service: sysmon
+  event_id: 1
+detection:
+  selection:
+    Image|endswith: '\cmd.exe'
+    CommandLine|contains|any:
+      - '/c powershell'
+      - '/c certutil'
+      - '-EncodedCommand'
+      - '>>'
+      - '&&'
+      - '||'
+  filter:
+    ParentImage|endswith:
+      - '\explorer.exe'
+  condition: selection and not filter
+fields:
+  - CommandLine
+  - ParentCommandLine
+  - Image
+  - User
+falsepositives:
+  - Legitimate administrative cmd.exe usage
+level: medium
+tags:
+  - attack.execution
+  - attack.t1059.003
