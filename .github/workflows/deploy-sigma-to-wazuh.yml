@@ -1,4 +1,4 @@
-name: Deploy Sigma Rules to Wazuh
+name: Sigma to Wazuh CI Pipeline
 
 on:
   push:
@@ -6,9 +6,12 @@ on:
       - main
     paths:
       - 'sigma-rules/**'
+  pull_request:
+    paths:
+      - 'sigma-rules/**'
 
 jobs:
-  validate-and-deploy:
+  validate-and-convert:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -20,10 +23,9 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          pip install pyyaml requests
+        run: pip install pyyaml
 
-      - name: Validate Sigma rules
+      - name: Validate Sigma YAML syntax
         run: |
           python -c "
           import yaml
@@ -32,20 +34,18 @@ jobs:
               with open(file) as f:
                   yaml.safe_load(f)
               print(f'✓ {file}')
+          print('All rules validated!')
           "
 
-      - name: Convert Sigma to Wazuh format
+      - name: Convert Sigma to Wazuh XML
         run: python sigma_to_wazuh_converter.py > wazuh_rules.xml
 
-      - name: Deploy to Wazuh
-        run: python deploy_to_wazuh.py
-        env:
-          WAZUH_API_URL: ${{ secrets.WAZUH_API_URL }}
-          WAZUH_USERNAME: ${{ secrets.WAZUH_USERNAME }}
-          WAZUH_PASSWORD: ${{ secrets.WAZUH_PASSWORD }}
+      - name: Display converted rules
+        run: head -50 wazuh_rules.xml
 
-      - name: Upload rules artifact
+      - name: Upload Wazuh rules artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wazuh-rules
+          name: wazuh-sigma-rules
           path: wazuh_rules.xml
+          retention-days: 30
