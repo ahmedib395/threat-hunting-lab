@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Production-grade Sigma to Wazuh XML converter
-Generates deployment-ready XML with correct field names and specificity
+Generates deployment-ready XML with combined OR logic fields
 """
 
 import yaml
 import glob
 import sys
+from collections import defaultdict
 
 class SigmaToWazuhConverter:
     def __init__(self):
@@ -37,7 +38,10 @@ class SigmaToWazuhConverter:
         rule_lines.append('    <if_group>sysmon</if_group>')
         rule_lines.append('    <field name="win.system.eventID">1</field>')
         
-        # Extract detection fields and add data. prefix
+        # Group fields by name to combine values
+        field_groups = defaultdict(list)
+        
+        # Extract detection fields
         detection = sigma.get('detection', {})
         if isinstance(detection, dict):
             for key, value in detection.items():
@@ -53,10 +57,17 @@ class SigmaToWazuhConverter:
                         base_field = field_name.split('|')[0]
                         wazuh_field = f"data.win.eventdata.{base_field}" if not base_field.startswith('data.') else base_field
                         
-                        # Combine all values with OR logic
-                        if field_values:
-                            patterns = '|'.join(str(v).replace('\\', '\\\\') for v in field_values)
-                            rule_lines.append(f'    <field name="{wazuh_field}" type="pcre2">(?i)({patterns})</field>')
+                        # Group all values by field name
+                        field_groups[wazuh_field].extend(field_values)
+        
+        # Output combined fields (one field per unique name with OR logic)
+        for field_name in sorted(field_groups.keys()):
+            values = field_groups[field_name]
+            if values:
+                # Escape backslashes and combine with OR
+                escaped_values = [str(v).replace('\\', '\\\\') for v in values]
+                pattern = '|'.join(escaped_values)
+                rule_lines.append(f'    <field name="{field_name}" type="pcre2">(?i)({pattern})</field>')
         
         # Add description
         rule_lines.append(f'    <description>{title}</description>')
