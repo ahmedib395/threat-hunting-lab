@@ -1,104 +1,119 @@
-import os
-import glob
+#!/usr/bin/env python3
+"""
+Production-grade Sigma to Wazuh XML converter
+Reads Sigma YAML rules and generates deployment-ready Wazuh XML
+"""
+
 import yaml
+import glob
+import sys
+from collections import defaultdict
 
-# Wazuh ID counter starting point
-START_RULE_ID = 100001
-
-# Maps standard Sigma field names to correct Wazuh JSON/Sysmon paths
-FIELD_MAPPING = {
-    "Image": "win.eventdata.image",
-    "OriginalFileName": "win.eventdata.originalFileName",
-    "CommandLine": "win.eventdata.commandLine",
-    "ParentImage": "win.eventdata.parentImage",
-    "TargetObject": "win.eventdata.targetObject",
-    "User": "win.eventdata.user",
-    "Hashes": "win.eventdata.hashes"
-}
-
-def clean_value(val):
-    """Normalizes and escapes strings for PCRE2 compatibility in Wazuh."""
-    if isinstance(val, list):
-        # Join lists into a regex OR group
-        return "|".join([str(v).replace("\\", "\\\\") for v in val])
-    elif isinstance(val, str):
-        return val.replace("\\", "\\\\")
-    return str(val)
-
-def convert_yaml_to_wazuh_rule(filepath, rule_id):
-    with open(filepath, 'r', encoding='utf-8') as f:
+class SigmaToWazuhConverter:
+    def __init__(self):
+        self.rule_id = 100001
+    
+    def convert_sigma_to_wazuh(self, sigma_file):
+        """Convert a single Sigma YAML file to Wazuh XML"""
         try:
-            data = yaml.safe_load(f)
+            with open(sigma_file, 'r') as f:
+                sigma = yaml.safe_load(f)
         except Exception as e:
-            print(f"Skipping {filepath}: Error parsing YAML ({e})")
+            print(f"ERROR: {sigma_file}: {e}", file=sys.stderr)
             return None
+        
+        if not sigma:
+            return None
+        
+        title = sigma.get('title', 'Detection Rule')
+        level = sigma.get('level', 'medium')
+        
+        # Map Sigma levels to Wazuh levels
+        level_map = {'low': 5, 'medium': 5, 'high': 10, 'critical': 10}
+        wazuh_level = level_map.get(level, 5)
+        
+        # Collect all fields grouped by name
+        field_groups = defaultdict(list)
+        
+        # Extract detection fields from Sigma rule
+        detection = sigma.get('detection', {})
+        if isinstance(detection, dict):
+            for key, value in detection.items():
+                if key == 'condition':
+                    continue
+                if isinstance(value, dict):
+                    for field_name, field_values in value.items():
+                        # Normalize to list
+                        if not isinstance(field_values, list):
+                            field_values = [field_values]
+                        
+                        # Extract base field name (remove Sigma operators like |contains, |endswith)
+                        base_field = field_name.split('|')[0]
+                        
+                        # Add data. prefix if not already present
+                        if base_field.lower().startswith('image'):
+                            wazuh_field = 'data.win.eventdata.Image'
+                        elif base_field.lower().startswith('commandline'):
+                            wazuh_field = 'data.win.eventdata.CommandLine'
+                        elif base_field.lower().startswith('originalfilename'):
+                            wazuh_field = 'data.win.eventdata.OriginalFileName'
+                        elif base_field.lower().startswith('targetobject'):
+                            wazuh_field = 'data.win.eventdata.TargetObject'
+                        elif base_field.lower().startswith('parentimage'):
+                            wazuh_field = 'data.win.eventdata.ParentImage'
+                        else:
+                            wazuh_field = f'data.win.eventdata.{base_field}'
+                        
+                        # Collect values
+                        field_groups[wazuh_field].extend(field_values)
+        
+        # Build XML
+        rule_lines = []
+        rule_lines.append(f'  <rule id="{self.rule_id}" level="{wazuh_level}">')
+        rule_lines.append('    <if_group>sysmon</if_group>')
+        
+        # Add event ID (default to 1 unless it's registry rule)
+        if 'targetobject' in str(detection).lower():
+            rule_lines.append('    <field name="win.system.eventID">13</field>')
+        else:
+            rule_lines.append('    <field name="win.system.eventID">1</field>')
+        
+        # Output combined fields (one field per unique name with OR logic)
+        for field_name in sorted(field_groups.keys()):
+            values = field_groups[field_name]
+            if values:
+                # Escape backslashes
+                escaped_values = [str(v).replace('\\', '\\\\') for v in values]
+                # Combine with OR logic
+                pattern = '|'.join(escaped_values)
+                rule_lines.append(f'    <field name="{field_name}" type="pcre2">(?i)({pattern})</field>')
+        
+        # Add description
+        rule_lines.append(f'    <description>{title}</description>')
+        rule_lines.append('  </rule>')
+        
+        self.rule_id += 1
+        return '\n'.join(rule_lines)
 
-    if not data or 'detection' not in data:
-        return None
-
-    title = data.get('title', 'Unknown Sigma Rule')
-    description = data.get('description', title).strip().replace('\n', ' ')
-    level = "10" # Default detection level
+def main():
+    converter = SigmaToWazuhConverter()
+    sigma_files = sorted(glob.glob('sigma-rules/*.yml'))
     
-    # Determine Event ID based on detection fields or tags
-    event_id = "1"
-    detection = data.get('detection', {})
+    if not sigma_files:
+        print("ERROR: No Sigma rules found in sigma-rules/", file=sys.stderr)
+        sys.exit(1)
     
-    rule_xml = f'  <!-- Rule: {title} -->\n'
-    rule_xml += f'  <rule id="{rule_id}" level="{level}">\n'
-    rule_xml += '    <if_group>sysmon</if_group>\n'
-
-    # Extract fields from detection selections
-    fields_content = ""
-    for key, val in detection.items():
-        if key == 'condition':
-            continue
-        if isinstance(val, dict):
-            for field_key, field_val in val.items():
-                # Clean field modifier if present (e.g., Image|contains -> Image)
-                base_field = field_key.split('|')[0]
-                wazuh_field = FIELD_MAPPING.get(base_field, f"win.eventdata.{base_field.lower()}")
-                
-                # Check if it targets registry (Event ID 13)
-                if base_field == 'TargetObject':
-                    event_id = "13"
-
-                formatted_val = clean_value(field_val)
-                fields_content += f'    <field name="{wazuh_field}" type="pcre2">(?i)({formatted_val})</field>\n'
-
-    rule_xml += f'    <field name="win.system.eventID">{event_id}</field>\n'
-    rule_xml += fields_content
-    rule_xml += f'    <description>{title} - {description}</description>\n'
-    rule_xml += '  </rule>\n'
+    print('<group name="sigma_detection_rules">')
     
-    return rule_xml
-
-def generate_rules_file(sigma_directory, output_xml_path):
-    current_id = START_RULE_ID
-    xml_output = '<group name="sigma_detection_rules">\n'
+    for sigma_file in sigma_files:
+        try:
+            xml = converter.convert_sigma_to_wazuh(sigma_file)
+            if xml:
+                print(xml)
+        except Exception as e:
+            print(f"ERROR: {sigma_file}: {e}", file=sys.stderr)
     
-    search_pattern = os.path.join(sigma_directory, '**', '*.yml')
-    files = glob.glob(search_pattern, recursive=True)
-    
-    if not files:
-        # Try .yaml extension too
-        search_pattern = os.path.join(sigma_directory, '**', '*.yaml')
-        files = glob.glob(search_pattern, recursive=True)
-
-    for filepath in files:
-        rule_snippet = convert_yaml_to_wazuh_rule(filepath, current_id)
-        if rule_snippet:
-            xml_output += rule_snippet + '\n'
-            current_id += 1
-
-    xml_output += '</group>'
-
-    with open(output_xml_path, 'w', encoding='utf-8') as out:
-        out.write(xml_output)
-    print(f"Successfully compiled {current_id - START_RULE_ID} rules into {output_xml_path}")
+    print('</group>')
 
 if __name__ == '__main__':
-    # Point this to your repository folder containing the Sigma YAML rules
-    RULES_DIR = './sigma_rules'
-    OUTPUT_FILE = 'local_rules.xml'
-    generate_rules_file(RULES_DIR, OUTPUT_FILE)
+    main()
