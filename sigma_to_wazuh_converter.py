@@ -103,11 +103,12 @@ def main():
     
     xml_content += '</group>'
     
-    # Write to file
+    # OUTPUT TO STDOUT (for GitHub Actions to capture)
+    print(xml_content)
+    
+    # ALSO write to file locally for testing
     with open('wazuh_rules.xml', 'w') as f:
         f.write(xml_content)
-    
-    print("✓ Generated wazuh_rules.xml successfully")
 
 if __name__ == '__main__':
     main()
