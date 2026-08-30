@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production-grade Sigma to Wazuh XML converter
-Reads Sigma YAML rules and generates deployment-ready Wazuh XML
+Reads Sigma YAML rules and generates deployment-ready Wazuh XML file
 """
 
 import yaml
@@ -47,22 +47,11 @@ class SigmaToWazuhConverter:
                         if not isinstance(field_values, list):
                             field_values = [field_values]
                         
-                        # Extract base field name (remove Sigma operators like |contains, |endswith)
+                        # Extract base field name
                         base_field = field_name.split('|')[0]
                         
-                        # Add data. prefix if not already present
-                        if base_field.lower().startswith('image'):
-                            wazuh_field = 'data.win.eventdata.Image'
-                        elif base_field.lower().startswith('commandline'):
-                            wazuh_field = 'data.win.eventdata.CommandLine'
-                        elif base_field.lower().startswith('originalfilename'):
-                            wazuh_field = 'data.win.eventdata.OriginalFileName'
-                        elif base_field.lower().startswith('targetobject'):
-                            wazuh_field = 'data.win.eventdata.TargetObject'
-                        elif base_field.lower().startswith('parentimage'):
-                            wazuh_field = 'data.win.eventdata.ParentImage'
-                        else:
-                            wazuh_field = f'data.win.eventdata.{base_field}'
+                        # Add data. prefix
+                        wazuh_field = f'data.win.eventdata.{base_field}'
                         
                         # Collect values
                         field_groups[wazuh_field].extend(field_values)
@@ -71,20 +60,13 @@ class SigmaToWazuhConverter:
         rule_lines = []
         rule_lines.append(f'  <rule id="{self.rule_id}" level="{wazuh_level}">')
         rule_lines.append('    <if_group>sysmon</if_group>')
+        rule_lines.append('    <field name="win.system.eventID">1</field>')
         
-        # Add event ID (default to 1 unless it's registry rule)
-        if 'targetobject' in str(detection).lower():
-            rule_lines.append('    <field name="win.system.eventID">13</field>')
-        else:
-            rule_lines.append('    <field name="win.system.eventID">1</field>')
-        
-        # Output combined fields (one field per unique name with OR logic)
+        # Output combined fields
         for field_name in sorted(field_groups.keys()):
             values = field_groups[field_name]
             if values:
-                # Escape backslashes
                 escaped_values = [str(v).replace('\\', '\\\\') for v in values]
-                # Combine with OR logic
                 pattern = '|'.join(escaped_values)
                 rule_lines.append(f'    <field name="{field_name}" type="pcre2">(?i)({pattern})</field>')
         
@@ -100,20 +82,27 @@ def main():
     sigma_files = sorted(glob.glob('sigma-rules/*.yml'))
     
     if not sigma_files:
-        print("ERROR: No Sigma rules found in sigma-rules/", file=sys.stderr)
+        print("ERROR: No Sigma rules found", file=sys.stderr)
         sys.exit(1)
     
-    print('<group name="sigma_detection_rules">')
+    # Build complete XML
+    xml_content = '<group name="sigma_detection_rules">\n'
     
     for sigma_file in sigma_files:
         try:
             xml = converter.convert_sigma_to_wazuh(sigma_file)
             if xml:
-                print(xml)
+                xml_content += xml + '\n'
         except Exception as e:
             print(f"ERROR: {sigma_file}: {e}", file=sys.stderr)
     
-    print('</group>')
+    xml_content += '</group>'
+    
+    # WRITE TO FILE (not just print)
+    with open('wazuh_rules.xml', 'w') as f:
+        f.write(xml_content)
+    
+    print("✓ Generated wazuh_rules.xml successfully")
 
 if __name__ == '__main__':
     main()
