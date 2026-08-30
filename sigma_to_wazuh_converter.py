@@ -34,6 +34,7 @@ class SigmaToWazuhConverter:
         
         # Collect all fields grouped by name
         field_groups = defaultdict(list)
+        event_id = '1'  # Default to Event ID 1
         
         # Extract detection fields from Sigma rule
         detection = sigma.get('detection', {})
@@ -50,6 +51,10 @@ class SigmaToWazuhConverter:
                         # Extract base field name
                         base_field = field_name.split('|')[0]
                         
+                        # Detect Registry rules (Event ID 13)
+                        if 'targetobject' in base_field.lower():
+                            event_id = '13'
+                        
                         # Add data. prefix
                         wazuh_field = f'data.win.eventdata.{base_field}'
                         
@@ -60,7 +65,7 @@ class SigmaToWazuhConverter:
         rule_lines = []
         rule_lines.append(f'  <rule id="{self.rule_id}" level="{wazuh_level}">')
         rule_lines.append('    <if_group>sysmon</if_group>')
-        rule_lines.append('    <field name="win.system.eventID">1</field>')
+        rule_lines.append(f'    <field name="win.system.eventID">{event_id}</field>')
         
         # Output combined fields
         for field_name in sorted(field_groups.keys()):
@@ -98,7 +103,7 @@ def main():
     
     xml_content += '</group>'
     
-    # WRITE TO FILE (not just print)
+    # Write to file
     with open('wazuh_rules.xml', 'w') as f:
         f.write(xml_content)
     
