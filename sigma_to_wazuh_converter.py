@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Production-grade Sigma to Wazuh XML converter
-Generates deployment-ready XML with combined OR logic fields
+Reads Sigma YAML rules and generates deployment-ready Wazuh XML
 """
 
 import yaml
@@ -14,7 +14,7 @@ class SigmaToWazuhConverter:
         self.rule_id = 100001
     
     def convert_sigma_to_wazuh(self, sigma_file):
-        """Convert Sigma YAML to Wazuh XML rule"""
+        """Convert a single Sigma YAML file to Wazuh XML"""
         try:
             with open(sigma_file, 'r') as f:
                 sigma = yaml.safe_load(f)
@@ -28,20 +28,14 @@ class SigmaToWazuhConverter:
         title = sigma.get('title', 'Detection Rule')
         level = sigma.get('level', 'medium')
         
-        # Map levels
+        # Map Sigma levels to Wazuh levels
         level_map = {'low': 5, 'medium': 5, 'high': 10, 'critical': 10}
         wazuh_level = level_map.get(level, 5)
         
-        # Start building XML
-        rule_lines = []
-        rule_lines.append(f'  <rule id="{self.rule_id}" level="{wazuh_level}">')
-        rule_lines.append('    <if_group>sysmon</if_group>')
-        rule_lines.append('    <field name="win.system.eventID">1</field>')
-        
-        # Group fields by name to combine values
+        # Collect all fields grouped by name
         field_groups = defaultdict(list)
         
-        # Extract detection fields
+        # Extract detection fields from Sigma rule
         detection = sigma.get('detection', {})
         if isinstance(detection, dict):
             for key, value in detection.items():
@@ -53,19 +47,44 @@ class SigmaToWazuhConverter:
                         if not isinstance(field_values, list):
                             field_values = [field_values]
                         
-                        # Extract base field and add data. prefix
+                        # Extract base field name (remove Sigma operators like |contains, |endswith)
                         base_field = field_name.split('|')[0]
-                        wazuh_field = f"data.win.eventdata.{base_field}" if not base_field.startswith('data.') else base_field
                         
-                        # Group all values by field name
+                        # Add data. prefix if not already present
+                        if base_field.lower().startswith('image'):
+                            wazuh_field = 'data.win.eventdata.Image'
+                        elif base_field.lower().startswith('commandline'):
+                            wazuh_field = 'data.win.eventdata.CommandLine'
+                        elif base_field.lower().startswith('originalfilename'):
+                            wazuh_field = 'data.win.eventdata.OriginalFileName'
+                        elif base_field.lower().startswith('targetobject'):
+                            wazuh_field = 'data.win.eventdata.TargetObject'
+                        elif base_field.lower().startswith('parentimage'):
+                            wazuh_field = 'data.win.eventdata.ParentImage'
+                        else:
+                            wazuh_field = f'data.win.eventdata.{base_field}'
+                        
+                        # Collect values
                         field_groups[wazuh_field].extend(field_values)
+        
+        # Build XML
+        rule_lines = []
+        rule_lines.append(f'  <rule id="{self.rule_id}" level="{wazuh_level}">')
+        rule_lines.append('    <if_group>sysmon</if_group>')
+        
+        # Add event ID (default to 1 unless it's registry rule)
+        if 'targetobject' in str(detection).lower():
+            rule_lines.append('    <field name="win.system.eventID">13</field>')
+        else:
+            rule_lines.append('    <field name="win.system.eventID">1</field>')
         
         # Output combined fields (one field per unique name with OR logic)
         for field_name in sorted(field_groups.keys()):
             values = field_groups[field_name]
             if values:
-                # Escape backslashes and combine with OR
+                # Escape backslashes
                 escaped_values = [str(v).replace('\\', '\\\\') for v in values]
+                # Combine with OR logic
                 pattern = '|'.join(escaped_values)
                 rule_lines.append(f'    <field name="{field_name}" type="pcre2">(?i)({pattern})</field>')
         
@@ -81,7 +100,7 @@ def main():
     sigma_files = sorted(glob.glob('sigma-rules/*.yml'))
     
     if not sigma_files:
-        print("ERROR: No Sigma rules found", file=sys.stderr)
+        print("ERROR: No Sigma rules found in sigma-rules/", file=sys.stderr)
         sys.exit(1)
     
     print('<group name="sigma_detection_rules">')
