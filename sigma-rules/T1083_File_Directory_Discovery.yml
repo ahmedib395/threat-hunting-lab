@@ -1,4 +1,4 @@
-
+#final
 title: File and Directory Discovery - Enumeration of Sensitive Paths 
 id: 7e8c9b3a-1234-5678-abcd-ef1234567890
 description: Detects cmd.exe or PowerShell enumerating sensitive directories (AppData, Desktop, Documents, Users)
