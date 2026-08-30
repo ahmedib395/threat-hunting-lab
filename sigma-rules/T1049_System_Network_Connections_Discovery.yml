@@ -1,4 +1,4 @@
-# final test
+
 title: System Network Connections Discovery
 id: 1m2n3o4p-5678-9012-pqrs-345678901234
 description: Detects tools used to enumerate network connections and routes (netstat, ipconfig, Get-NetTCPConnection)
