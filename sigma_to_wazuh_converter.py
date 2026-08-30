@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Production-grade Sigma to Wazuh XML converter
-Reads Sigma YAML rules, maps MITRE tags dynamically, and generates safe Wazuh XML
+Reads Sigma YAML rules, maps MITRE tags dynamically, escapes regex for XML,
+enforces 'data.' field prefixes, and outputs to stdout + wazuh_rules.xml.
 """
 
 import yaml
@@ -29,7 +30,7 @@ class SigmaToWazuhConverter:
         title = sigma.get('title', 'Detection Rule')
         level = sigma.get('level', 'medium')
         
-        # Map Sigma levels to Wazuh levels
+        # Map Sigma severity levels to Wazuh rule levels
         level_map = {'low': 5, 'medium': 5, 'high': 10, 'critical': 10}
         wazuh_level = level_map.get(level, 5)
         
@@ -57,28 +58,36 @@ class SigmaToWazuhConverter:
                         
                         base_field = field_name.split('|')[0]
                         
-                        # Dynamic Event ID switching
+                        # Dynamic Event ID switching for registry events
                         if 'targetobject' in base_field.lower():
                             event_id = '13'
                         
-                        # Standard Wazuh field mapping (No hardcoded data. prefix)
-                        if base_field.lower() == 'image': wazuh_field = 'win.eventdata.image'
-                        elif base_field.lower() == 'commandline': wazuh_field = 'win.eventdata.commandLine'
-                        elif base_field.lower() == 'originalfilename': wazuh_field = 'win.eventdata.originalFileName'
-                        elif base_field.lower() == 'targetobject': wazuh_field = 'win.eventdata.targetObject'
-                        elif base_field.lower() == 'parentimage': wazuh_field = 'win.eventdata.parentImage'
-                        else: wazuh_field = f'win.eventdata.{base_field}'
+                        # Standard Wazuh field mapping (Enforcing data. prefix for indexed log schema)
+                        b_lower = base_field.lower()
+                        if b_lower == 'image':
+                            wazuh_field = 'data.win.eventdata.image'
+                        elif b_lower == 'commandline':
+                            wazuh_field = 'data.win.eventdata.commandLine'
+                        elif b_lower == 'originalfilename':
+                            wazuh_field = 'data.win.eventdata.originalFileName'
+                        elif b_lower == 'targetobject':
+                            wazuh_field = 'data.win.eventdata.targetObject'
+                        elif b_lower == 'parentimage':
+                            wazuh_field = 'data.win.eventdata.parentImage'
+                        elif b_lower == 'user':
+                            wazuh_field = 'data.win.eventdata.User'
+                        else:
+                            wazuh_field = f'data.win.eventdata.{base_field}'
                         
                         field_groups[wazuh_field].extend(field_values)
         
-        # Build XML
+        # Build XML rule elements
         rule_lines = []
-        # Inject dynamic HTML comment
         rule_lines.append(f'  <!-- Rule {self.rule_counter}: {mitre_comment} - {title} -->')
         rule_lines.append(f'  <rule id="{self.rule_id}" level="{wazuh_level}">')
         rule_lines.append('    <if_group>sysmon</if_group>')
         
-        # Inject dynamic MITRE mapping for Wazuh GUI
+        # Inject dynamic MITRE mapping block for Wazuh GUI dashboard
         if mitre_tags:
             rule_lines.append('    <mitre>')
             for tag in mitre_tags:
@@ -94,11 +103,10 @@ class SigmaToWazuhConverter:
                 escaped_values = [v.replace('|', '\\|') for v in escaped_values]
                 pattern = '|'.join(escaped_values)
                 
-                # HTML escape strictly for XML compatibility
+                # HTML escape reserved XML characters like &, <, >
                 safe_xml_pattern = html.escape(pattern)
                 rule_lines.append(f'    <field name="{field_name}" type="pcre2">(?i)({safe_xml_pattern})</field>')
         
-        # Prepend MITRE tag to description
         rule_lines.append(f'    <description>{mitre_prefix}{title}</description>')
         rule_lines.append('  </rule>')
         
@@ -111,10 +119,9 @@ def main():
     sigma_files = sorted(glob.glob('sigma-rules/*.yml'))
     
     if not sigma_files:
-        print("ERROR: No Sigma rules found", file=sys.stderr)
+        print("ERROR: No Sigma rules found in sigma-rules/*.yml", file=sys.stderr)
         sys.exit(1)
     
-    # Build complete XML
     xml_content = '<group name="sigma_detection_rules">\n'
     
     for sigma_file in sigma_files:
@@ -127,10 +134,10 @@ def main():
     
     xml_content += '</group>'
     
-    # OUTPUT TO STDOUT (for GitHub Actions to capture)
+    # Print output to STDOUT for pipeline logging
     print(xml_content)
     
-    # ALSO write to file locally for testing
+    # Save output to wazuh_rules.xml for GitHub Artifact upload
     with open('wazuh_rules.xml', 'w') as f:
         f.write(xml_content)
 
