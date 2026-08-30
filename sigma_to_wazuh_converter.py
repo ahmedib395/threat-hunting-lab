@@ -12,11 +12,6 @@ class SigmaToWazuhConverter:
     def __init__(self):
         self.rule_id = 100001
     
-    def get_rule_description(self, sigma_rule):
-        """Extract description from Sigma rule"""
-        title = sigma_rule.get('title', 'Detection Rule')
-        return f"{title}"
-    
     def convert_sigma_to_wazuh(self, sigma_file):
         """Convert Sigma YAML to Wazuh XML rule"""
         try:
@@ -58,10 +53,10 @@ class SigmaToWazuhConverter:
                         base_field = field_name.split('|')[0]
                         wazuh_field = f"data.win.eventdata.{base_field}" if not base_field.startswith('data.') else base_field
                         
-                        # Create pattern
-                        for val in field_values:
-                            val_str = str(val).replace('"', '\\"')
-                            rule_lines.append(f'    <field name="{wazuh_field}" type="pcre2">(?i){val_str}</field>')
+                        # Combine all values with OR logic
+                        if field_values:
+                            patterns = '|'.join(str(v).replace('\\', '\\\\') for v in field_values)
+                            rule_lines.append(f'    <field name="{wazuh_field}" type="pcre2">(?i)({patterns})</field>')
         
         # Add description
         rule_lines.append(f'    <description>{title}</description>')
