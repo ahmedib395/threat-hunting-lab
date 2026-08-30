@@ -1,4 +1,4 @@
-# finalversion
+
 title: Application Window Discovery - Suspicious Temp Execution
 id: 2d3h4i5j-6789-0123-fghi-456789012345
 description: Detects executables launched from AppData\Local\Temp, often used for process discovery and evasion
